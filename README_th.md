@@ -94,7 +94,7 @@ docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT * F
 ### ภาพตัวอย่างแดชบอร์ด
 นี่คือรายงานวิเคราะห์หุ้นและราคาคริปโทฯ ที่นำเสนอแนวโน้มราคา รายละเอียดแท่งเทียน ปริมาณการซื้อขาย และดัชนีความผันผวน:
 
-![ตัวอย่าง Looker Studio Dashboard](dashboard_mockup.png)
+![ตัวอย่าง Looker Studio Dashboard](dashboard_mockup_th.png)
 
 ---
 

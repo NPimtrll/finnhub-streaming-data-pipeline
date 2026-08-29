@@ -124,7 +124,7 @@ Since Looker Studio is a cloud service, you can expose your local ClickHouse ser
 ### Dashboard Visualization
 Here is a preview of the Looker Studio Dashboard showing stock price trends, trading volumes, and transaction counts:
 
-![Looker Studio Dashboard Mockup](dashboard_mockup.png)
+![Looker Studio Dashboard Mockup](dashboard_mockup_th.png)
 
 ---
 
