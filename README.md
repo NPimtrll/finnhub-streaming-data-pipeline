@@ -89,6 +89,35 @@ This pipeline employs a highly decoupled architecture following production-grade
 ### 2. Streaming Outside Airflow
 - **Why not run ingestion inside Airflow?** Running a long-running WebSocket subscription or streaming daemon inside an Airflow worker task (e.g., using PythonOperator) is an anti-pattern and overkill. Airflow is designed to coordinate short-lived, stateless, batch task processes. Running a continuous streaming job inside Airflow locks up workers, violates task isolation, makes scheduler health checks fragile, and leads to unstable execution. Instead, the streamer runs as a dedicated, lightweight Docker container, completely external to Airflow.
 
+### 3. Component Details & Objectives
+To clarify the purpose of each service in the stack, we define their objectives below:
+- **Ingestion Daemon (`streamer` service)**: Pulls high-frequency trading data at millisecond levels, buffers events in-memory, and commits them to ClickHouse in micro-batches to optimize network and I/O efficiency.
+- **Data Warehouse (`clickhouse-server`)**: Stores massive transactional events in a column-oriented storage format using the `MergeTree` engine, allowing microsecond analytical aggregations.
+- **Transformation Tool (`dbt`)**: Responsible for cleansing raw logs, structuring them into a Star Schema (Core dimensional models), and building marts. All queries run in-database (ELT).
+- **Workflow Orchestrator (`airflow`)**: Manages the schedule for triggering dbt transformations and executes automated data quality checks, eliminating redundant computations.
+- **BI Interface (`Looker Studio`)**: Exposes an interactive financial advisor panel where investors can query calculations dynamically using input budget and profit targets.
+
+### 4. Design Principles
+Our architectural design relies on three core tenets:
+1. **Separation of Concerns (SoC)**: Keeps long-running streaming services separate from batch processing. A failure in the streaming container does not impact task coordination inside Airflow.
+2. **ELT (Extract, Load, Transform)**: Data is written directly to the database as-is without inline processing to prevent data loss. Transformations are deferred to dbt inside ClickHouse.
+3. **Dimensional Modeling (Star Schema)**: Transforms flat OBT datasets into structured dimensions (`dim_assets`) and transactional facts (`fct_trades`) to ensure model durability, logical relationships, and multiple perspectives.
+
+### 5. Definitions of Ambiguous Terms
+To reduce business logic ambiguity, we define key terms used in our pipeline:
+1. **"Price Diversity / Volatility"**: 
+   - *Technical Definition*: Calculated using **Price Spread** ($=$ High price $-$ Low price inside a 1-minute window) and **Relative Volatility Spread** ($=$ Price Spread $/$ Open Price).
+   - *Business Interpretation*: Higher spreads represent diverse bid/ask valuations, indicating trading volatility suitable for short-term gains.
+2. **"Estimated 3-Month Gain"**:
+   - *Technical Definition*: Defined as a conservative estimate calculated as **25% of the 1-year analyst consensus target price growth** (`target_median` relative to `current_price`).
+   - *Business Interpretation*: A normalized near-term benchmark for forecasting returns.
+3. **"Consensus Rating"**:
+   - *Technical Definition*: Calculated based on analyst buy/sell ratios:
+     - **Strong Buy**: If Buy + Strong Buy ratings $> 70\%$ of total analyst ratings.
+     - **Buy**: If Buy + Strong Buy ratings are between $50\% - 70\%$.
+     - **Sell**: If Sell + Strong Sell ratings $> 30\%$.
+     - **Hold**: All other distributions.
+
 ---
 
 ## Business Questions & Dashboard Metrics Mapping
