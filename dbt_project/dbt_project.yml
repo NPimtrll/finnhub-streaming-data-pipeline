@@ -1,0 +1,33 @@
+name: 'finnhub_dbt'
+version: '1.0.0'
+config-version: 2
+
+# Profile matches profiles.yml
+profile: 'finnhub_profile'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  finnhub_dbt:
+    # Staging models will default to view materialization
+    staging:
+      +materialized: view
+    # Core models will default to table materialization
+    core:
+      +materialized: table
+    # Marts models will default to incremental or table materialization in ClickHouse
+    marts:
+      +materialized: table
+
+seeds:
+  finnhub_dbt:
+    +materialized: seed

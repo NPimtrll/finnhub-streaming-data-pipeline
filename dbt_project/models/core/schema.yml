@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: dim_assets
+    description: Dimension table mapping assets to their official names and categories (e.g. Stock vs. Crypto)
+    columns:
+      - name: symbol
+        description: Trading symbol (e.g. AAPL, BTCUSDT)
+        tests:
+          - unique
+          - not_null
+      - name: asset_name
+        description: Full name of the asset
+      - name: category
+        description: Asset category classification (e.g. Stock, Crypto)
+
+  - name: fct_trades
+    description: Transactional facts table containing individual trade events.
+    columns:
+      - name: trade_key
+        description: MD5 generated unique key for the trade transaction
+        tests:
+          - unique
+          - not_null
+      - name: symbol
+        description: Trading symbol (foreign key to dim_assets)
+        tests:
+          - not_null

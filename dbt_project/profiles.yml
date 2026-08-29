@@ -1,0 +1,21 @@
+finnhub_profile:
+  target: dev
+  outputs:
+    dev:
+      type: clickhouse
+      host: clickhouse
+      port: 8123
+      user: default
+      password: ""
+      schema: analytics
+      driver: http
+      threads: 4
+    local:
+      type: clickhouse
+      host: localhost
+      port: 8123
+      user: default
+      password: ""
+      schema: analytics
+      driver: http
+      threads: 4

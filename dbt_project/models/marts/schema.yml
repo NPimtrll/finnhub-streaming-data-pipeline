@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: mart_ohlcv
+    description: Minutely OHLCV (Open, High, Low, Close, Volume) aggregates for trading symbols.
+    columns:
+      - name: symbol
+        description: Trading symbol (e.g. AAPL, TSLA)
+        tests:
+          - not_null
+      - name: asset_name
+        description: Full name of the trading asset (from dim_assets)
+      - name: asset_category
+        description: The category of the asset (from dim_assets)
+      - name: window_start
+        description: The start of the 1-minute window
+        tests:
+          - not_null
+      - name: open
+        description: The opening price in this window
+      - name: high
+        description: The highest price in this window
+      - name: low
+        description: The lowest price in this window
+      - name: close
+        description: The closing price in this window
+      - name: price_spread
+        description: The difference between high and low price (volatility)
+      - name: relative_spread
+        description: The price spread relative to the opening price
+      - name: volume
+        description: The total volume traded in this window
+      - name: trade_count
+        description: Total number of trades in this window
+      - name: avg_price
+        description: The average trade price in this window

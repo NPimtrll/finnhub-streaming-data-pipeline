@@ -1,0 +1,28 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw # In ClickHouse, schema represents the database
+    tables:
+      - name: trades
+
+models:
+  - name: stg_trades
+    description: Staged and cleaned trade data from Finnhub
+    columns:
+      - name: symbol
+        description: Trading symbol (e.g., AAPL, TSLA, BTCUSDT)
+        tests:
+          - not_null
+      - name: price
+        description: Trade transaction price
+        tests:
+          - not_null
+      - name: volume
+        description: Trade volume
+        tests:
+          - not_null
+      - name: trade_timestamp
+        description: Timestamp parsed as a datetime64
+        tests:
+          - not_null

@@ -1,0 +1,2 @@
+websocket-client==1.6.1
+clickhouse-connect==0.7.19

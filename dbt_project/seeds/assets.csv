@@ -1,0 +1,6 @@
+symbol,asset_name,category
+AAPL,Apple Inc.,Stock
+MSFT,Microsoft Corporation,Stock
+TSLA,Tesla Inc.,Stock
+BINANCE:BTCUSDT,Bitcoin / Tether US,Crypto
+BINANCE:ETHUSDT,Ethereum / Tether US,Crypto
