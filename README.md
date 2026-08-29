@@ -119,12 +119,35 @@ Since Looker Studio is a cloud service, you can expose your local ClickHouse ser
    - **User**: `default`
    - **Password**: (leave blank)
    - **Database**: `analytics`
-   - **Table**: `mart_ohlcv`
+   - **Table**: `mart_ohlcv` or `mart_investment_advisor`
 
 ### Dashboard Visualization
 Here is a preview of the Looker Studio Dashboard showing stock price trends, trading volumes, and transaction counts:
 
 ![Looker Studio Dashboard Mockup](dashboard_mockup_th.png)
+
+---
+
+## Smart Investment Advisor (Interactive Dashboard Integration)
+
+To address users who **"cannot analyze technical charts easily"** and want immediate answers directly on the dashboard without asking a bot: **"If I have this much budget and want x% profit in 3 months, which asset should I buy the most?"**
+
+We created the **`mart_investment_advisor`** table. Integrated with Looker Studio's **Input Parameter** features, the dashboard calculates investment choices dynamically:
+
+### 1. Data Fields Prepared by dbt:
+- `current_price`: Latest raw trade price.
+- `target_median`: Median 1-year target price by Wall Street analysts.
+- `upside_potential_percent`: Potential price growth (%) over 1 year.
+- `estimated_gain_3m_percent`: Estimated return rate (%) in 3 months (calculated as 25% of the 1-year upside).
+- `consensus_rating`: General analyst consensus (e.g., *Strong Buy*, *Buy*, *Hold*, *Sell*).
+
+### 2. Interactive Features on Looker Studio:
+1. **Enter Budget & Target Profit %**: The user enters their budget (e.g., `$10,000`) and target return (e.g., `10%`) via dashboard input fields.
+2. **Automated Calculated Fields**:
+   - **Shares to Buy**: `Budget / current_price`
+   - **Expected 3-Month Profit ($)**: `Budget * (estimated_gain_3m_percent / 100)`
+   - **Meets Target?**: `IF(estimated_gain_3m_percent >= Target_Profit, '✅ Pass', '❌ Fail')`
+3. **Recommendation Ranking**: The table ranks assets by `estimated_gain_3m_percent` descending, showing the user exactly which asset best hits their financial target.
 
 ---
 

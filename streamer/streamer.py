@@ -5,9 +5,11 @@ import json
 import random
 import signal
 import logging
+import requests
 import websocket
 import clickhouse_connect
 from threading import Thread
+from datetime import datetime
 
 # Configure Logging
 logging.basicConfig(
@@ -65,6 +67,8 @@ def init_clickhouse():
     
     # Initialize DB and Raw table
     ch_client.command("CREATE DATABASE IF NOT EXISTS raw")
+    
+    # 1. raw.trades
     ch_client.command(
         """
         CREATE TABLE IF NOT EXISTS raw.trades (
@@ -78,7 +82,42 @@ def init_clickhouse():
         ORDER BY (symbol, timestamp)
         """
     )
-    logger.info("Database and raw table initialized.")
+    
+    # 2. raw.price_targets
+    ch_client.command(
+        """
+        CREATE TABLE IF NOT EXISTS raw.price_targets (
+            symbol String,
+            target_high Float64,
+            target_low Float64,
+            target_mean Float64,
+            target_median Float64,
+            number_of_analyst Int32,
+            last_updated String,
+            ingested_at DateTime DEFAULT now()
+        ) ENGINE = MergeTree()
+        ORDER BY (symbol, last_updated)
+        """
+    )
+    
+    # 3. raw.recommendations
+    ch_client.command(
+        """
+        CREATE TABLE IF NOT EXISTS raw.recommendations (
+            symbol String,
+            period String,
+            strong_buy Int32,
+            buy Int32,
+            hold Int32,
+            sell Int32,
+            strong_sell Int32,
+            ingested_at DateTime DEFAULT now()
+        ) ENGINE = MergeTree()
+        ORDER BY (symbol, period)
+        """
+    )
+    
+    logger.info("Database and raw tables initialized.")
 
 def flush_buffer():
     global data_buffer, last_flush_time
@@ -131,9 +170,138 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
+# --- ANALYST & RECOMMENDATION INGESTION ---
+def fetch_and_store_analyst_data():
+    logger.info("Fetching analyst recommendations and price targets from Finnhub REST API...")
+    for sym in SYMBOLS:
+        # Clean symbol name for REST endpoints (cryptos don't have price targets)
+        # e.g., BINANCE:BTCUSDT -> we skip target price or try and handle exceptions
+        if ":" in sym:
+            logger.info(f"Skipping price target for cryptocurrency/forex symbol: {sym}")
+            continue
+
+        try:
+            # 1. Fetch Price Target
+            target_url = f"https://finnhub.io/api/v1/stock/price-target?symbol={sym}&token={FINNHUB_API_KEY}"
+            resp = requests.get(target_url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("targetMean"):
+                    ch_client.insert(
+                        "raw.price_targets",
+                        [(
+                            str(data["symbol"]),
+                            float(data["targetHigh"]),
+                            float(data["targetLow"]),
+                            float(data["targetMean"]),
+                            float(data["targetMedian"]),
+                            int(data["numberOfAnalyst"]),
+                            str(data["lastUpdated"])
+                        )],
+                        column_names=["symbol", "target_high", "target_low", "target_mean", "target_median", "number_of_analyst", "last_updated"]
+                    )
+                    logger.info(f"Stored price target for {sym}")
+            elif resp.status_code == 429:
+                logger.warning("Rate limit hit on Finnhub REST API. Waiting 5s...")
+                time.sleep(5)
+            else:
+                logger.error(f"Failed to fetch price target for {sym}: HTTP {resp.status_code}")
+
+            # 2. Fetch Recommendation Trends
+            rec_url = f"https://finnhub.io/api/v1/stock/recommendation?symbol={sym}&token={FINNHUB_API_KEY}"
+            resp = requests.get(rec_url, timeout=10)
+            if resp.status_code == 200:
+                trends = resp.json()
+                if isinstance(trends, list) and len(trends) > 0:
+                    rows = []
+                    for t in trends[:3]:  # Save last 3 months
+                        rows.append((
+                            str(t["symbol"]),
+                            str(t["period"]),
+                            int(t["strongBuy"]),
+                            int(t["buy"]),
+                            int(t["hold"]),
+                            int(t["sell"]),
+                            int(t["strongSell"])
+                        ))
+                    ch_client.insert(
+                        "raw.recommendations",
+                        rows,
+                        column_names=["symbol", "period", "strong_buy", "buy", "hold", "sell", "strong_sell"]
+                    )
+                    logger.info(f"Stored recommendations for {sym}")
+            elif resp.status_code == 429:
+                logger.warning("Rate limit hit on Finnhub REST API. Waiting 5s...")
+                time.sleep(5)
+            else:
+                logger.error(f"Failed to fetch recommendations for {sym}: HTTP {resp.status_code}")
+
+            time.sleep(1) # Sleep to respect rate limits
+        except Exception as e:
+            logger.error(f"Error fetching analyst data for {sym}: {e}")
+
+def generate_mock_analyst_data():
+    logger.info("Generating mock analyst recommendations and price targets...")
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    periods = ["2026-08-01", "2026-07-01", "2026-06-01"]
+    
+    # Base targets mapping
+    targets = {
+        "AAPL": (240.0, 160.0, 208.5, 207.0, 38),
+        "MSFT": (460.0, 340.0, 412.0, 410.0, 45),
+        "TSLA": (320.0, 140.0, 245.5, 248.0, 29),
+        "BINANCE:BTCUSDT": (95000.0, 58000.0, 81000.0, 80000.0, 15),
+        "BINANCE:ETHUSDT": (5200.0, 2800.0, 4200.0, 4150.0, 12)
+    }
+
+    # Base recommendations mapping
+    recs = {
+        "AAPL": (18, 12, 6, 1, 0),
+        "MSFT": (25, 14, 3, 0, 0),
+        "TSLA": (8, 11, 8, 2, 1),
+        "BINANCE:BTCUSDT": (11, 3, 1, 0, 0),
+        "BINANCE:ETHUSDT": (8, 4, 0, 0, 0)
+    }
+
+    try:
+        # 1. Write mock price targets
+        pt_rows = []
+        for sym, (high, low, mean, median, analysts) in targets.items():
+            pt_rows.append((sym, high, low, mean, median, analysts, current_date))
+        ch_client.insert(
+            "raw.price_targets",
+            pt_rows,
+            column_names=["symbol", "target_high", "target_low", "target_mean", "target_median", "number_of_analyst", "last_updated"]
+        )
+
+        # 2. Write mock recommendations for last 3 months
+        rec_rows = []
+        for sym, (sb, b, h, s, ss) in recs.items():
+            for p in periods:
+                # Add slight random noise per month
+                noise = random.randint(-2, 2)
+                rec_rows.append((
+                    sym,
+                    p,
+                    max(0, sb + noise),
+                    max(0, b - noise),
+                    max(0, h),
+                    max(0, s),
+                    max(0, ss)
+                ))
+        ch_client.insert(
+            "raw.recommendations",
+            rec_rows,
+            column_names=["symbol", "period", "strong_buy", "buy", "hold", "sell", "strong_sell"]
+        )
+        logger.info("Mock analyst data generated successfully.")
+    except Exception as e:
+        logger.error(f"Error generating mock analyst data: {e}")
+
 # --- MOCK SIMULATED MODE ---
 def run_mock_streamer():
     logger.info("No FINNHUB_API_KEY provided. Running in MOCK MODE.")
+    generate_mock_analyst_data()
     
     # Initialize base prices for mock symbols
     prices = {
@@ -225,6 +393,7 @@ def on_open(ws):
 
 def run_websocket_streamer():
     logger.info("FINNHUB_API_KEY provided. Running in WEB SOCKET MODE.")
+    fetch_and_store_analyst_data()
     
     # Thread to periodically flush buffer
     def flush_loop():

@@ -34,3 +34,22 @@ models:
         description: Total number of trades in this window
       - name: avg_price
         description: The average trade price in this window
+
+  - name: mart_investment_advisor
+    description: Mart table providing price targets, upside percentages, and recommendations for stocks/cryptos.
+    columns:
+      - name: symbol
+        description: Trading symbol
+        tests:
+          - unique
+          - not_null
+      - name: current_price
+        description: Latest trade price
+      - name: target_median
+        description: Median price target predicted by Wall Street analysts
+      - name: upside_potential_percent
+        description: Expected growth/upside percentage over 1 year
+      - name: estimated_gain_3m_percent
+        description: Expected growth/upside percentage over 3 months
+      - name: consensus_rating
+        description: Overall analyst recommendation rating (e.g. Strong Buy, Buy, Hold, Sell)

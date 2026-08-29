@@ -5,6 +5,8 @@ sources:
     schema: raw # In ClickHouse, schema represents the database
     tables:
       - name: trades
+      - name: price_targets
+      - name: recommendations
 
 models:
   - name: stg_trades
@@ -26,3 +28,9 @@ models:
         description: Timestamp parsed as a datetime64
         tests:
           - not_null
+
+  - name: stg_price_targets
+    description: Staged analyst price targets from Finnhub
+
+  - name: stg_recommendations
+    description: Staged analyst recommendations from Finnhub
