@@ -10,6 +10,7 @@ import websocket
 import clickhouse_connect
 from threading import Thread
 from datetime import datetime
+import uuid
 
 # Configure Logging
 logging.basicConfig(
@@ -72,6 +73,7 @@ def init_clickhouse():
     ch_client.command(
         """
         CREATE TABLE IF NOT EXISTS raw.trades (
+            trade_id String,
             symbol String,
             price Float64,
             volume Float64,
@@ -135,7 +137,7 @@ def flush_buffer():
         ch_client.insert(
             "raw.trades",
             rows_to_insert,
-            column_names=["symbol", "price", "volume", "timestamp", "conditions"]
+            column_names=["trade_id", "symbol", "price", "volume", "timestamp", "conditions"]
         )
         logger.info(f"Successfully inserted {len(rows_to_insert)} records.")
     except Exception as e:
@@ -146,7 +148,9 @@ def flush_buffer():
 def add_to_buffer(symbol, price, volume, timestamp, conditions):
     # Ensure types are correct
     try:
+        trade_id = str(uuid.uuid4())
         row = (
+            trade_id,
             str(symbol),
             float(price),
             float(volume),

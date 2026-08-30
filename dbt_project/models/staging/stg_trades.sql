@@ -2,6 +2,7 @@
 
 with source_data as (
     select
+        trade_id,
         symbol,
         price,
         volume,
@@ -12,6 +13,7 @@ with source_data as (
 )
 
 select
+    trade_id,
     symbol,
     price,
     volume,

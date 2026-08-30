@@ -12,6 +12,11 @@ models:
   - name: stg_trades
     description: Staged and cleaned trade data from Finnhub
     columns:
+      - name: trade_id
+        description: Unique transaction ID generated at source (UUIDv4)
+        tests:
+          - unique
+          - not_null
       - name: symbol
         description: Trading symbol (e.g., AAPL, TSLA, BTCUSDT)
         tests:

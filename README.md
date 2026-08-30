@@ -23,8 +23,11 @@ graph TD
 - **Decoupled Architecture**: Strictly separates the ingestion engine (standalone Python daemon) from transformations (dbt scheduled by Airflow) to prevent pipeline lockups and ClickHouse performance drops.
 - **Dual Ingestion Mode**: Stream real-time data using a Finnhub API key or automatically fallback to a robust **Mock Trade Generator** if no key is provided.
 - **Star Schema Modeling**: Implements a professional dimensional modeling design with fact (`fct_trades`) and dimension (`dim_assets`) tables.
+- **Source UUID Generator**: Generates `trade_id` as UUIDv4 at the streamer ingestion source to guarantee transaction uniqueness and completely prevent key collision risk in high-frequency trading ticks.
 - **Incremental Processing**: Configured dbt incremental loads for high-frequency transactional data to minimize compute resource usage.
 - **ClickHouse Optimization**: Uses buffered batch inserts to maximize ClickHouse write performance and utilizes native ClickHouse functions like `argMin`/`argMax` for fast aggregates.
+- **Unified dbt Build Task**: Consolidates Airflow orchestrations using the modern **`dbt build`** command which runs seeds, models, and tests in order, allowing early task halting upon validation errors.
+- **CI/CD Quality Control**: Implemented a GitHub Actions CI workflow to run formatting checks (`black`) and python syntax analysis (`flake8`) automatically on pull requests or commits.
 - **Fully Containerized**: PostgreSQL (Airflow backend), ClickHouse, Airflow Scheduler/Webserver, and the Python Streamer run in Docker Compose.
 
 ---

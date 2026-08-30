@@ -33,22 +33,10 @@ with DAG(
         bash_command='dbt debug --project-dir /opt/airflow/dbt_project --profiles-dir /opt/airflow/dbt_project',
     )
 
-    # Run dbt seed to load seeds into ClickHouse
-    dbt_seed = BashOperator(
-        task_id='dbt_seed',
-        bash_command='dbt seed --project-dir /opt/airflow/dbt_project --profiles-dir /opt/airflow/dbt_project',
+    # Build dbt project (runs seeds, models, and tests in DAG order)
+    dbt_build = BashOperator(
+        task_id='dbt_build',
+        bash_command='dbt build --project-dir /opt/airflow/dbt_project --profiles-dir /opt/airflow/dbt_project',
     )
 
-    # Run dbt models
-    dbt_run = BashOperator(
-        task_id='dbt_run',
-        bash_command='dbt run --project-dir /opt/airflow/dbt_project --profiles-dir /opt/airflow/dbt_project',
-    )
-
-    # Test dbt models
-    dbt_test = BashOperator(
-        task_id='dbt_test',
-        bash_command='dbt test --project-dir /opt/airflow/dbt_project --profiles-dir /opt/airflow/dbt_project',
-    )
-
-    dbt_deps >> dbt_debug >> dbt_seed >> dbt_run >> dbt_test
+    dbt_deps >> dbt_debug >> dbt_build

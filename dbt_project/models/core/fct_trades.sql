@@ -9,8 +9,7 @@ with staged_trades as (
 )
 
 select
-    -- Generate unique trade key using ClickHouse hash functions
-    hex(MD5(concat(symbol, '-', toString(trade_timestamp), '-', toString(price), '-', toString(volume)))) as trade_key,
+    trade_id as trade_key,
     symbol,
     price,
     volume,
