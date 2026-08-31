@@ -47,7 +47,7 @@ latest_recs as (
 )
 
 select
-    t.symbol,
+    t.symbol as symbol,
     a.asset_name,
     a.category as asset_category,
     t.current_price,
