@@ -48,14 +48,14 @@ latest_recs as (
 
 select
     t.symbol as symbol,
-    a.asset_name,
+    a.asset_name as asset_name,
     a.category as asset_category,
-    t.current_price,
-    tg.target_median,
-    tg.target_mean,
-    tg.target_high,
-    tg.target_low,
-    tg.number_of_analyst,
+    t.current_price as current_price,
+    tg.target_median as target_median,
+    tg.target_mean as target_mean,
+    tg.target_high as target_high,
+    tg.target_low as target_low,
+    tg.number_of_analyst as number_of_analyst,
     
     -- Calculate 1-Year Upside Potential based on target median
     if(t.current_price > 0 and tg.target_median > 0, 
@@ -70,11 +70,11 @@ select
     ) as estimated_gain_3m_percent,
 
     -- Recommendations counts
-    rc.strong_buy,
-    rc.buy,
-    rc.hold,
-    rc.sell,
-    rc.strong_sell,
+    rc.strong_buy as strong_buy,
+    rc.buy as buy,
+    rc.hold as hold,
+    rc.sell as sell,
+    rc.strong_sell as strong_sell,
     (rc.strong_buy + rc.buy + rc.hold + rc.sell + rc.strong_sell) as total_analyst_ratings,
 
     -- Determine Consensus Rating
