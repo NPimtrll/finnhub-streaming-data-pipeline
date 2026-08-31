@@ -40,10 +40,11 @@ services:
     ports:
       - "8123:8123"
       - "9000:9000"
+      - "9004:9004"
       - "9005:9005"
     volumes:
       - chdata:/var/lib/clickhouse
-      - ./clickhouse_config.xml:/etc/clickhouse-server/config.d/postgresql_port.xml
+      - ./clickhouse_config.xml:/etc/clickhouse-server/config.d/mysql_postgresql_port.xml
     ulimits:
       nofile:
         soft: 262144
