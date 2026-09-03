@@ -31,7 +31,9 @@ def init_clickhouse():
             )
             break
         except Exception as e:
-            logger.warning(f"Could not connect to ClickHouse, retrying in 5 seconds... Error: {e}")
+            logger.warning(
+                f"Could not connect to ClickHouse, retrying in 5 seconds... Error: {e}"
+            )
             time.sleep(5)
 
     if ch_client is None:
@@ -41,8 +43,7 @@ def init_clickhouse():
     logger.info("Connected to ClickHouse successfully.")
     ch_client.command("CREATE DATABASE IF NOT EXISTS raw")
 
-    ch_client.command(
-        """
+    ch_client.command("""
         CREATE TABLE IF NOT EXISTS raw.trades (
             trade_id String,
             symbol String,
@@ -53,11 +54,9 @@ def init_clickhouse():
             ingested_at DateTime DEFAULT now()
         ) ENGINE = MergeTree()
         ORDER BY (symbol, timestamp)
-        """
-    )
+        """)
 
-    ch_client.command(
-        """
+    ch_client.command("""
         CREATE TABLE IF NOT EXISTS raw.price_targets (
             symbol String,
             target_high Float64,
@@ -69,11 +68,9 @@ def init_clickhouse():
             ingested_at DateTime DEFAULT now()
         ) ENGINE = MergeTree()
         ORDER BY (symbol, last_updated)
-        """
-    )
+        """)
 
-    ch_client.command(
-        """
+    ch_client.command("""
         CREATE TABLE IF NOT EXISTS raw.recommendations (
             symbol String,
             period String,
@@ -85,12 +82,11 @@ def init_clickhouse():
             ingested_at DateTime DEFAULT now()
         ) ENGINE = MergeTree()
         ORDER BY (symbol, period)
-        """
-    )
+        """)
 
 
 def flush_buffer():
-    global data_buffer, last_flush_time
+    global last_flush_time
     if not data_buffer:
         last_flush_time = time.time()
         return
@@ -104,7 +100,14 @@ def flush_buffer():
         ch_client.insert(
             "raw.trades",
             rows_to_insert,
-            column_names=["trade_id", "symbol", "price", "volume", "timestamp", "conditions"],
+            column_names=[
+                "trade_id",
+                "symbol",
+                "price",
+                "volume",
+                "timestamp",
+                "conditions",
+            ],
         )
         logger.info(f"Successfully inserted {len(rows_to_insert)} records.")
     except Exception as e:

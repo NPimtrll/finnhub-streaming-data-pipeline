@@ -18,18 +18,23 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install Linting Tools
+    - name: Install Dependencies for Lint & Test
       run: |
         python -m pip install --upgrade pip
-        pip install black flake8
+        pip install black flake8 pytest pytest-mock
+        pip install "apache-airflow==2.7.2" "clickhouse-connect>=0.7.0" requests websocket-client
 
     - name: Run Black formatter check
       run: |
-        black --check streamer/ airflow/dags/
+        black --check streamer/ airflow/dags/ tests/
 
     - name: Run Flake8 linter check
       run: |
         # stop the build if there are Python syntax errors or undefined names
-        flake8 streamer/ airflow/dags/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 streamer/ airflow/dags/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings
-        flake8 streamer/ airflow/dags/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        flake8 streamer/ airflow/dags/ tests/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Run Unit Tests
+      run: |
+        pytest -v

@@ -29,7 +29,11 @@ def run_mock_streamer(is_running_func):
             prices[symbol] *= 1 + random.normalvariate(0, volatility)
 
             price = round(prices[symbol], 2 if "BINANCE" not in symbol else 4)
-            volume = round(random.uniform(0.001, 10.0), 6) if "BINANCE" in symbol else random.randint(1, 500)
+            volume = (
+                round(random.uniform(0.001, 10.0), 6)
+                if "BINANCE" in symbol
+                else random.randint(1, 500)
+            )
             timestamp = int(time.time() * 1000)
 
             conditions = (
