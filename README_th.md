@@ -78,7 +78,7 @@ docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT * F
 
 ## การเชื่อมต่อกับ Looker Studio (Google Data Studio)
 
-เนื่องจาก Looker Studio ทำงานอยู่บนคลาวด์ แต่ ClickHouse ของเราทำงานอยู่ใน Docker เครื่องคอมพิวเตอร์ของคุณเอง เราจึงต้องใช้ **ngrok** เพื่อเปิดช่องสัญญาณ:
+เนื่องจาก Looker Studio ทำงานอยู่บนคลาวด์ แต่ ClickHouse ของเราทำงานอยู่ใน Docker เครื่องเรา เราจึงต้องใช้ **ngrok** เพื่อเปิดช่องสัญญาณ:
 
 1. เปิดช่องสัญญาณพอร์ต ClickHouse HTTP (`8123`):
    ```bash

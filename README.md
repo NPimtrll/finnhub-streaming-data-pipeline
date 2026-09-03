@@ -10,25 +10,30 @@ An end-to-end real-time data engineering pipeline that streams financial market 
 
 ```mermaid
 graph TD
-    A[Finnhub WebSocket API / Mock Generator] -->|Stream JSON Trades| B(Python Streamer)
-    B -->|Batch Insert| C[(ClickHouse: raw.trades)]
-    D[Apache Airflow] -->|Orchestrate| E[dbt seed / run / test]
-    E -->|Clean & Cast Types| F[(ClickHouse: analytics.stg_trades)]
-    E -->|Core Models| G[(ClickHouse: analytics.dim_assets & fct_trades)]
-    E -->|Aggregate OHLCV| H[(ClickHouse: analytics.mart_ohlcv)]
+    A["Finnhub WebSocket API / Mock Generator"] -->|Stream JSON Trades| B(Python Streamer)
+    A2["Finnhub REST API / Mock Analyst Generator"] -->|"Price Targets & Recommendations"| B
+    B -->|Batch Insert| C[("ClickHouse: raw.trades")]
+    B -->|"Insert on Startup"| C2[("ClickHouse: raw.price_targets & raw.recommendations")]
+    D["Apache Airflow DAG: finnhub_dbt_run (Daily)"] -->|"1. dbt deps"| E1[Install Dependencies]
+    E1 -->|"2. dbt debug"| E2[Validate Connection]
+    E2 -->|"3. dbt build"| E["Run Seeds, Models & Tests"]
+    E -->|Staging| F[("ClickHouse: analytics.stg_trades, stg_price_targets, stg_recommendations")]
+    E -->|Core Models| G[("ClickHouse: analytics.dim_assets & fct_trades")]
+    E -->|Aggregates| H[("ClickHouse: analytics.mart_ohlcv & mart_investment_advisor")]
     H -->|Expose via Tunnel| I[Looker Studio Dashboard]
 ```
 
 ## Features
 - **Decoupled Architecture**: Strictly separates the ingestion engine (standalone Python daemon) from transformations (dbt scheduled by Airflow) to prevent pipeline lockups and ClickHouse performance drops.
-- **Dual Ingestion Mode**: Stream real-time data using a Finnhub API key or automatically fallback to a robust **Mock Trade Generator** if no key is provided.
-- **Star Schema Modeling**: Implements a professional dimensional modeling design with fact (`fct_trades`) and dimension (`dim_assets`) tables.
+- **Dual Ingestion Mode**: Stream real-time data using a Finnhub API key, or automatically fall back to a robust **Mock Trade Generator** (with realistic price drift) when no key is provided.
+- **Analyst Data Ingestion**: On startup, the streamer fetches analyst **price targets** and **recommendations** from the Finnhub REST API (or generates mock data in Mock Mode) and stores them in `raw.price_targets` and `raw.recommendations`.
+- **Star Schema Modeling**: Implements a professional dimensional modeling design with fact (`fct_trades`) and dimension (`dim_assets`) tables, plus dedicated mart tables (`mart_ohlcv`, `mart_investment_advisor`).
 - **Source UUID Generator**: Generates `trade_id` as UUIDv4 at the streamer ingestion source to guarantee transaction uniqueness and completely prevent key collision risk in high-frequency trading ticks.
-- **Incremental Processing**: Configured dbt incremental loads for high-frequency transactional data to minimize compute resource usage.
+- **Configurable Batching**: Tune write behavior via environment variables — `BATCH_SIZE` (default: 100 records) and `BATCH_INTERVAL_SEC` (default: 2.0 s) — to balance throughput and latency.
 - **ClickHouse Optimization**: Uses buffered batch inserts to maximize ClickHouse write performance and utilizes native ClickHouse functions like `argMin`/`argMax` for fast aggregates.
-- **Unified dbt Build Task**: Consolidates Airflow orchestrations using the modern **`dbt build`** command which runs seeds, models, and tests in order, allowing early task halting upon validation errors.
-- **CI/CD Quality Control**: Implemented a GitHub Actions CI workflow to run formatting checks (`black`) and python syntax analysis (`flake8`) automatically on pull requests or commits.
-- **Fully Containerized**: PostgreSQL (Airflow backend), ClickHouse, Airflow Scheduler/Webserver, and the Python Streamer run in Docker Compose.
+- **3-Step Airflow DAG (`finnhub_dbt_run`)**: Runs daily on a structured task chain — `dbt deps` → `dbt debug` → `dbt build` — to install packages, validate the connection, then run seeds, models, and tests in dependency order.
+- **CI/CD Quality Control**: Implemented a GitHub Actions CI workflow to run formatting checks (`black`) and Python syntax analysis (`flake8`) automatically on pull requests or commits.
+- **Fully Containerized**: PostgreSQL (Airflow backend), ClickHouse, Airflow Scheduler/Webserver, and the Python Streamer all run in a single `docker-compose up` command.
 
 ---
 
@@ -37,7 +42,7 @@ graph TD
 ### 1. Prerequisites
 - Docker & Docker Compose installed.
 - (Optional) A free API key from [Finnhub.io](https://finnhub.io/).
-- (Optional) [ngrok](https://ngrok.com/) installed on your host machine to connect Looker Studio to your local ClickHouse.
+- (Optional) SSH client (pre-installed on macOS/Linux) to create a [Pinggy](https://pinggy.io/) tunnel for Looker Studio connectivity.
 
 ### 2. Running the Pipeline
 Clone the repository and run:
@@ -50,6 +55,17 @@ If you have a Finnhub API Key, create a `.env` file in the root directory first:
 ```env
 FINNHUB_API_KEY=your_api_key_here
 ```
+
+If no key is provided, the streamer will automatically run in **Mock Mode** — generating realistic trade ticks and mock analyst data without any external dependency.
+
+#### Optional Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `FINNHUB_API_KEY` | _(empty)_ | Finnhub API key. If blank, Mock Mode activates. |
+| `SYMBOLS` | `AAPL,MSFT,TSLA,BINANCE:BTCUSDT,BINANCE:ETHUSDT` | Comma-separated list of symbols to track. |
+| `BATCH_SIZE` | `100` | Flush buffer to ClickHouse after this many records. |
+| `BATCH_INTERVAL_SEC` | `2.0` | Flush buffer if this many seconds have elapsed (whichever comes first). |
 
 ### 3. Verify Container Status
 Check that all containers are healthy:
@@ -73,9 +89,20 @@ To verify raw trade events are streaming into ClickHouse:
 docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT * FROM raw.trades LIMIT 10"
 ```
 
+To verify analyst data was ingested at startup:
+```bash
+docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT * FROM raw.price_targets LIMIT 10"
+docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT * FROM raw.recommendations LIMIT 10"
+```
+
 To check the transformed minutely OHLCV data:
 ```bash
 docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT * FROM analytics.mart_ohlcv LIMIT 10"
+```
+
+To check the Smart Investment Advisor mart:
+```bash
+docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT symbol, current_price, upside_potential_percent, estimated_gain_3m_percent, consensus_rating FROM analytics.mart_investment_advisor"
 ```
 
 ---
@@ -85,19 +112,19 @@ docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT * F
 This pipeline employs a highly decoupled architecture following production-grade best practices, specifically addressing potential anti-patterns in data pipeline design:
 
 ### 1. Decoupled Ingestion vs. Transformation
-- **The Ingestion Layer** runs continuously as a standalone Python daemon (`streamer` service). It reads from the WebSocket API, buffers incoming ticks in memory, and writes micro-batches to ClickHouse raw storage. 
-- **The Transformation Layer** runs as a batch dbt project.
-- **Why separate them?** Chaining ingestion and dbt run sequentially in the same Airflow DAG (e.g. running dbt every time a chunk of data is ingested) is an anti-pattern. If ingestion runs frequently (e.g. streaming or every few minutes), triggering dbt run on every write creates massive, redundant database load and will exhaust scheduler resources. By separating them, we allow ClickHouse to ingest raw trades continuously in real-time, while Airflow triggers dbt on an hourly or daily schedule to build analytical tables asynchronously.
+- **The Ingestion Layer** runs continuously as a standalone Python daemon (`streamer` service). On startup it also fetches analyst price targets and recommendations (via REST API or mock generator) and writes them to ClickHouse. It then reads trade ticks from the WebSocket, buffers them in memory, and flushes micro-batches to ClickHouse raw storage.
+- **The Transformation Layer** runs as a batch dbt project triggered daily by Airflow.
+- **Why separate them?** Chaining ingestion and dbt run sequentially in the same Airflow DAG is an anti-pattern. If ingestion runs frequently (e.g. streaming or every few minutes), triggering dbt run on every write creates massive, redundant database load and will exhaust scheduler resources. By separating them, we allow ClickHouse to ingest raw trades continuously in real-time, while Airflow triggers dbt on a daily schedule to build analytical tables asynchronously.
 
 ### 2. Streaming Outside Airflow
 - **Why not run ingestion inside Airflow?** Running a long-running WebSocket subscription or streaming daemon inside an Airflow worker task (e.g., using PythonOperator) is an anti-pattern and overkill. Airflow is designed to coordinate short-lived, stateless, batch task processes. Running a continuous streaming job inside Airflow locks up workers, violates task isolation, makes scheduler health checks fragile, and leads to unstable execution. Instead, the streamer runs as a dedicated, lightweight Docker container, completely external to Airflow.
 
 ### 3. Component Details & Objectives
 To clarify the purpose of each service in the stack, we define their objectives below:
-- **Ingestion Daemon (`streamer` service)**: Pulls high-frequency trading data at millisecond levels, buffers events in-memory, and commits them to ClickHouse in micro-batches to optimize network and I/O efficiency.
-- **Data Warehouse (`clickhouse-server`)**: Stores massive transactional events in a column-oriented storage format using the `MergeTree` engine, allowing microsecond analytical aggregations.
-- **Transformation Tool (`dbt`)**: Responsible for cleansing raw logs, structuring them into a Star Schema (Core dimensional models), and building marts. All queries run in-database (ELT).
-- **Workflow Orchestrator (`airflow`)**: Manages the schedule for triggering dbt transformations and executes automated data quality checks, eliminating redundant computations.
+- **Ingestion Daemon (`streamer` service)**: On startup, fetches analyst data (price targets + recommendations) via Finnhub REST API or Mock Generator. Then continuously pulls high-frequency trading data at millisecond resolution, buffers events in-memory, and commits them to ClickHouse in micro-batches to optimize network and I/O efficiency.
+- **Data Warehouse (`clickhouse-server`)**: Stores raw events across three tables (`raw.trades`, `raw.price_targets`, `raw.recommendations`) in a column-oriented format using the `MergeTree` engine, allowing microsecond analytical aggregations.
+- **Transformation Tool (`dbt`)**: Responsible for cleansing raw logs, structuring them into a Star Schema (core dimensional models), and building analytical marts (`mart_ohlcv`, `mart_investment_advisor`). All queries run in-database (ELT).
+- **Workflow Orchestrator (`airflow`)**: Runs the `finnhub_dbt_run` DAG daily with three ordered tasks: `dbt deps` → `dbt debug` → `dbt build`. Executes automated data quality checks via dbt tests, eliminating redundant computations.
 - **BI Interface (`Looker Studio`)**: Exposes an interactive financial advisor panel where investors can query calculations dynamically using input budget and profit targets.
 
 ### 4. Design Principles
@@ -137,21 +164,43 @@ To ensure the Looker Studio dashboard directly answers key business questions, o
 
 ## Connecting Looker Studio
 
-Since Looker Studio is a cloud service, you can expose your local ClickHouse server HTTP port (`8123`) using **ngrok**:
+Since Looker Studio is a cloud service, you need to expose your local ClickHouse to the internet. This project uses **Pinggy** — a free SSH-based tunnel that works without installing any extra tools.
 
-1. Run ngrok on your host:
-   ```bash
-   ngrok http 8123
-   ```
-2. Copy the public forwarding URL (e.g., `https://xxxx-xx-xx.ngrok-free.app`).
-3. Open [Looker Studio](https://lookerstudio.google.com/), click **Create Data Source**, and search for the **ClickHouse Connector** by ClickHouse.
-4. Configure the connection using the ngrok URL:
-   - **Host**: `xxxx-xx-xx.ngrok-free.app` (exclude the `https://`)
-   - **Port**: `443` (since ngrok uses HTTPS)
-   - **User**: `default`
-   - **Password**: (leave blank)
-   - **Database**: `analytics`
-   - **Table**: `mart_ohlcv` or `mart_investment_advisor`
+> [!NOTE]
+> Pinggy's free tier tunnels are limited to **1 hour** per session. Re-run the command to get a new tunnel URL when it expires.
+
+### 1. Open the Pinggy Tunnel
+
+Run this command on your **host machine** (not inside Docker):
+
+```bash
+ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -p 443 -R 0:localhost:9004 tcp@a.pinggy.io
+```
+
+This exposes ClickHouse's **MySQL-wire protocol port** (`9004`) through a public TCP endpoint. After connecting, Pinggy will print your public address, for example:
+
+```
+tcp://txxxxxxxxxxxx.a.pinggy.io:XXXXX
+```
+
+### 2. Configure the ClickHouse Connector in Looker Studio
+
+1. Open [Looker Studio](https://lookerstudio.google.com/), click **Create** → **Data Source**.
+2. Search for the **ClickHouse** connector (by ClickHouse, Inc.).
+3. Fill in the connection settings using the Pinggy address printed above:
+
+| Field | Value |
+|---|---|
+| **Host** | `txxxxxxxxxxxx.a.pinggy.io` (hostname only, no `tcp://`) |
+| **Port** | `XXXXX` (the port printed by Pinggy) |
+| **Protocol** | `MySQL` (uses port 9004) |
+| **User** | `default` |
+| **Password** | _(leave blank)_ |
+| **Database** | `analytics` |
+
+4. Click **Authenticate**, then select the table you need:
+   - `mart_ohlcv` — for OHLCV candlestick / price trend charts
+   - `mart_investment_advisor` — for the Smart Investment Advisor panel
 
 ### Dashboard Visualization
 Here is a preview of the Looker Studio Dashboard showing stock price trends, trading volumes, and transaction counts:
@@ -186,15 +235,25 @@ We created the **`mart_investment_advisor`** table. Integrated with Looker Studi
 ## Homework Answers
 
 ### 1. What did you learn from this project?
-- **Real-Time Data Streaming & Ingestion**: Learned how to implement a WebSocket client in Python that maintains a persistent connection, handles reconnections, buffers streaming trade data, and loads it to ClickHouse in micro-batches to prevent high IO overhead.
-- **ClickHouse Performance**: Realized ClickHouse's power for analytical processing. Instead of performing slow joins and row-by-row updates, I used ClickHouse's native `argMin` and `argMax` functions to calculate `Open` and `Close` prices in `GROUP BY` aggregates in seconds.
-- **dbt ClickHouse Adapter**: Gained experience utilizing the `dbt-clickhouse` adapter, managing staging views and table-materialized marts, and using Airflow to orchestrate the pipeline stages automatically.
+
+ก่อนทำโปรเจกต์นี้ผมคิดว่า "ดึงข้อมูลจาก API แล้วเซฟลงฐานข้อมูล" มันง่าย แต่พอลงมือทำจริงกับข้อมูลที่วิ่งเข้ามาแบบ real-time ทุกมิลลิวินาที ก็เริ่มเห็นว่ามันซับซ้อนกว่าที่คิดมาก
+
+สิ่งที่ได้เรียนรู้จริงๆ คือ **การบริหารจัดการข้อมูลที่วิ่งเข้าเร็วๆ** — แทนที่จะเซฟทีละบรรทัด ต้องกองข้อมูลไว้ก่อนแล้วค่อยยิงเป็นกลุ่มเพื่อไม่ให้ฐานข้อมูลรับไม่ไหว นอกจากนี้ยังได้รู้ว่า ClickHouse มันคิดเร็วมากถ้าถามแบบถูกวิธี — แค่ใช้ฟังก์ชัน `argMin`/`argMax` แทน join ซับซ้อน ก็ได้ราคา Open/Close ต่อนาทีมาเลย
+
+และที่สำคัญที่สุดคือ **เรื่องการแยก service** — ถ้าให้ Airflow ดูแลทั้งการดึงข้อมูลและ transform พร้อมกัน มันจะพัง แต่พอแยก streamer ออกมาเป็น container ของตัวเอง ทุกอย่างก็เสถียรขึ้นมาก
+
+---
 
 ### 2. How would you improve it?
-- **Decouple with Message Broker (Kafka)**: In production, direct writes from a WebSocket client to ClickHouse are risky (e.g. if ClickHouse is temporarily unavailable). Introducing a message broker like Apache Kafka or Redpanda would queue raw events, add durability, and allow other microservices to consume the data.
-- **dbt Incremental Models**: Instead of doing full table refreshes (`+materialized: table`), transform the dbt models into `incremental` tables using the `insert_overwrite` or `append` strategies to only process new trades since the last run.
-- **Schema Validation & Registry**: Use a Schema Registry (like Confluent's) and enforce schemas (e.g. Avro or Protobuf) to handle API contract changes gracefully.
+
+อย่างแรกที่อยากทำคือเพิ่ม **message queue กลางๆ** อย่าง Kafka ไว้คั่นระหว่าง streamer กับ ClickHouse เพราะตอนนี้ถ้า ClickHouse ล่ม ข้อมูลที่วิ่งเข้ามาตอนนั้นก็หายเลย — ถ้ามี queue มารับไว้ก่อนก็จะปลอดภัยกว่า
+
+อีกอย่างคือ dbt ตอนนี้ทำ full refresh ทุกครั้ง ซึ่งช้าและสิ้นเปลือง อยากเปลี่ยนให้มันประมวลเฉพาะข้อมูลใหม่ที่เพิ่งเข้ามาตั้งแต่ครั้งล่าสุด แค่นี้ก็เร็วขึ้นเยอะ
+
+---
 
 ### 3. If you have to do it all over again, what would you do differently?
-- **Use ClickHouse Materialized Views**: Instead of scheduling batch dbt models on a schedule via Airflow, I would define ClickHouse **Materialized Views** directly on the raw tables. ClickHouse Materialized Views compute aggregations (like OHLCV) *on insert*, turning this into a true real-time, zero-batch-overhead pipeline.
-- **Use an Ingestion Agent**: Instead of writing a custom Python daemon, I would consider using lightweight agents like **Vector** or **Benthos** to read from the WebSocket and write directly to ClickHouse, reducing the amount of custom code to maintain.
+
+ถ้าทำใหม่ตั้งแต่ต้น ผมจะไม่รอ Airflow รัน dbt ทุกวันเพื่อคำนวณ OHLCV ทีหลัง แต่จะใช้ **ClickHouse Materialized View** แทน — มันทำงานโดยคำนวณผลทันทีที่ข้อมูลเข้า ไม่ต้องรอรอบ batch เลย ข้อมูลที่เห็นใน dashboard ก็จะสดกว่านี้เยอะ
+
+กับอีกอย่างคือ อยากลองใช้เครื่องมือสำเร็จรูปอย่าง **Vector** แทนการเขียน Python streamer เอง เพราะโค้ดที่เขียนเองยิ่งเพิ่ม feature ยิ่งต้องดูแลเยอะขึ้น ถ้ามีเครื่องมือที่ทำเรื่องนี้อยู่แล้วก็น่าจะใช้มันดีกว่า
