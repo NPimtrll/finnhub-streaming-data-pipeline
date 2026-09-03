@@ -17,7 +17,6 @@ select
     symbol,
     price,
     volume,
-    -- Convert unix millisecond timestamp to DateTime64(3)
     toDateTime64(timestamp / 1000.0, 3) as trade_timestamp,
     conditions,
     ingested_at

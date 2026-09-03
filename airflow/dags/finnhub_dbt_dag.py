@@ -2,6 +2,9 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 
+DBT_PROJECT_DIR = "/opt/airflow/dbt_project"
+DBT_PROFILES_DIR = "/opt/airflow/dbt_project"
+
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
@@ -12,7 +15,7 @@ default_args = {
 }
 
 with DAG(
-    'finnhub_dbt_run',
+    dag_id='finnhub_dbt_run',
     default_args=default_args,
     description='A DAG to trigger daily dbt transformation on ClickHouse',
     schedule_interval=timedelta(days=1),
@@ -21,22 +24,19 @@ with DAG(
     tags=['dbt', 'finnhub'],
 ) as dag:
 
-    # Run dbt deps to make sure any dependencies are installed
-    dbt_deps = BashOperator(
-        task_id='dbt_deps',
-        bash_command='dbt deps --project-dir /opt/airflow/dbt_project --profiles-dir /opt/airflow/dbt_project',
+    install_dbt_dependencies = BashOperator(
+        task_id='install_dbt_dependencies',
+        bash_command=f'dbt deps --project-dir {DBT_PROJECT_DIR} --profiles-dir {DBT_PROFILES_DIR}',
     )
 
-    # Run dbt debug to test connection
-    dbt_debug = BashOperator(
-        task_id='dbt_debug',
-        bash_command='dbt debug --project-dir /opt/airflow/dbt_project --profiles-dir /opt/airflow/dbt_project',
+    test_dbt_connection = BashOperator(
+        task_id='test_dbt_connection',
+        bash_command=f'dbt debug --project-dir {DBT_PROJECT_DIR} --profiles-dir {DBT_PROFILES_DIR}',
     )
 
-    # Build dbt project (runs seeds, models, and tests in DAG order)
-    dbt_build = BashOperator(
-        task_id='dbt_build',
-        bash_command='dbt build --project-dir /opt/airflow/dbt_project --profiles-dir /opt/airflow/dbt_project',
+    build_dbt_models_and_tests = BashOperator(
+        task_id='build_dbt_models_and_tests',
+        bash_command=f'dbt build --project-dir {DBT_PROJECT_DIR} --profiles-dir {DBT_PROFILES_DIR}',
     )
 
-    dbt_deps >> dbt_debug >> dbt_build
+    install_dbt_dependencies >> test_dbt_connection >> build_dbt_models_and_tests

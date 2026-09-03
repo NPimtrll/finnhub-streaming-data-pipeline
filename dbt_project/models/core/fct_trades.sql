@@ -19,6 +19,5 @@ select
 from staged_trades
 
 {% if is_incremental() %}
-    -- Incremental load filter
     where ingested_at > (select max(ingested_at) from {{ this }})
 {% endif %}
