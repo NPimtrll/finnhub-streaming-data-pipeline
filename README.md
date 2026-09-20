@@ -196,9 +196,9 @@ tcp://txxxxxxxxxxxx.a.pinggy.io:XXXXX
    - `mart_investment_advisor` — for the Smart Investment Advisor panel
 
 ### Dashboard Visualization
-Here is a preview of the Looker Studio Dashboard showing stock price trends, trading volumes, and transaction counts:
+Here is a preview of the Looker Studio Dashboard showing stock price trends and the Smart Investment Advisor panel:
 
-![Looker Studio Dashboard Mockup](dashboard_mockup.png)
+![Looker Studio Dashboard](dashboard_screenshot.png)
 
 ---
 
