@@ -4,14 +4,14 @@
 
 # FinnHub Streaming Data Pipeline
 
-An end-to-end real-time data engineering pipeline that streams financial market trade events (stocks and cryptocurrencies) from the **Finnhub WebSocket API** (or simulates them in Mock Mode), stores them in **ClickHouse**, performs batch transformations using **dbt**, schedules models via **Apache Airflow**, and visualizes trading metrics in **Looker Studio (Google Data Studio)**.
+An end-to-end real-time data engineering pipeline that streams financial market trade events (stocks and cryptocurrencies) from the **Finnhub WebSocket API**, stores them in **ClickHouse**, performs batch transformations using **dbt**, schedules models via **Apache Airflow**, and visualizes trading metrics in **Looker Studio (Google Data Studio)**.
 
 ## Architecture
 
 ```mermaid
 graph TD
-    A["Finnhub WebSocket API / Mock Generator"] -->|Stream JSON Trades| B(Python Streamer)
-    A2["Finnhub REST API / Mock Analyst Generator"] -->|"Price Targets & Recommendations"| B
+    A["Finnhub WebSocket API"] -->|Stream JSON Trades| B(Python Streamer)
+    A2["Finnhub REST API"] -->|"Price Targets & Recommendations"| B
     B -->|Batch Insert| C[("ClickHouse: raw.trades")]
     B -->|"Insert on Startup"| C2[("ClickHouse: raw.price_targets & raw.recommendations")]
     D["Apache Airflow DAG: finnhub_dbt_run (Daily)"] -->|"1. dbt deps"| E1[Install Dependencies]
@@ -25,8 +25,8 @@ graph TD
 
 ## Features
 - **Decoupled Architecture**: Strictly separates the ingestion engine (standalone Python daemon) from transformations (dbt scheduled by Airflow) to prevent pipeline lockups and ClickHouse performance drops.
-- **Dual Ingestion Mode**: Stream real-time data using a Finnhub API key, or automatically fall back to a robust **Mock Trade Generator** (with realistic price drift) when no key is provided.
-- **Analyst Data Ingestion**: On startup, the streamer fetches analyst **price targets** and **recommendations** from the Finnhub REST API (or generates mock data in Mock Mode) and stores them in `raw.price_targets` and `raw.recommendations`.
+- **Real-Time Market Ingestion**: Streams live stock and cryptocurrency trades directly from Finnhub WebSocket and ingests analyst recommendations & price targets via Finnhub REST API.
+- **Analyst Data Ingestion**: On startup, the streamer fetches analyst **price targets** and **recommendations** from the Finnhub REST API and stores them in `raw.price_targets` and `raw.recommendations`.
 - **Star Schema Modeling**: Implements a professional dimensional modeling design with fact (`fct_trades`) and dimension (`dim_assets`) tables, plus dedicated mart tables (`mart_ohlcv`, `mart_investment_advisor`).
 - **Source UUID Generator**: Generates `trade_id` as UUIDv4 at the streamer ingestion source to guarantee transaction uniqueness and completely prevent key collision risk in high-frequency trading ticks.
 - **Configurable Batching**: Tune write behavior via environment variables — `BATCH_SIZE` (default: 100 records) and `BATCH_INTERVAL_SEC` (default: 2.0 s) — to balance throughput and latency.
@@ -41,28 +41,25 @@ graph TD
 
 ### 1. Prerequisites
 - Docker & Docker Compose installed.
-- (Optional) A free API key from [Finnhub.io](https://finnhub.io/).
+- An API key from [Finnhub.io](https://finnhub.io/).
 - (Optional) SSH client (pre-installed on macOS/Linux) to create a [Pinggy](https://pinggy.io/) tunnel for Looker Studio connectivity.
 
 ### 2. Running the Pipeline
-Clone the repository and run:
-
-```bash
-docker-compose up --build -d
-```
-
-If you have a Finnhub API Key, create a `.env` file in the root directory first:
+Clone the repository, create a `.env` file in the root directory:
 ```env
 FINNHUB_API_KEY=your_api_key_here
 ```
 
-If no key is provided, the streamer will automatically run in **Mock Mode** — generating realistic trade ticks and mock analyst data without any external dependency.
+Then run:
+```bash
+docker-compose up --build -d
+```
 
-#### Optional Environment Variables
+#### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `FINNHUB_API_KEY` | _(empty)_ | Finnhub API key. If blank, Mock Mode activates. |
+| `FINNHUB_API_KEY` | _(required)_ | Finnhub API key. |
 | `SYMBOLS` | `AAPL,MSFT,TSLA,BINANCE:BTCUSDT,BINANCE:ETHUSDT` | Comma-separated list of symbols to track. |
 | `BATCH_SIZE` | `100` | Flush buffer to ClickHouse after this many records. |
 | `BATCH_INTERVAL_SEC` | `2.0` | Flush buffer if this many seconds have elapsed (whichever comes first). |
@@ -112,7 +109,7 @@ docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT sym
 This pipeline employs a highly decoupled architecture following production-grade best practices, specifically addressing potential anti-patterns in data pipeline design:
 
 ### 1. Decoupled Ingestion vs. Transformation
-- **The Ingestion Layer** runs continuously as a standalone Python daemon (`streamer` service). On startup it also fetches analyst price targets and recommendations (via REST API or mock generator) and writes them to ClickHouse. It then reads trade ticks from the WebSocket, buffers them in memory, and flushes micro-batches to ClickHouse raw storage.
+- **The Ingestion Layer** runs continuously as a standalone Python daemon (`streamer` service). On startup it fetches analyst price targets and recommendations (via Finnhub REST API) and writes them to ClickHouse. It then reads trade ticks from the WebSocket, buffers them in memory, and flushes micro-batches to ClickHouse raw storage.
 - **The Transformation Layer** runs as a batch dbt project triggered daily by Airflow.
 - **Why separate them?** Chaining ingestion and dbt run sequentially in the same Airflow DAG is an anti-pattern. If ingestion runs frequently (e.g. streaming or every few minutes), triggering dbt run on every write creates massive, redundant database load and will exhaust scheduler resources. By separating them, we allow ClickHouse to ingest raw trades continuously in real-time, while Airflow triggers dbt on a daily schedule to build analytical tables asynchronously.
 
@@ -121,7 +118,7 @@ This pipeline employs a highly decoupled architecture following production-grade
 
 ### 3. Component Details & Objectives
 To clarify the purpose of each service in the stack, we define their objectives below:
-- **Ingestion Daemon (`streamer` service)**: On startup, fetches analyst data (price targets + recommendations) via Finnhub REST API or Mock Generator. Then continuously pulls high-frequency trading data at millisecond resolution, buffers events in-memory, and commits them to ClickHouse in micro-batches to optimize network and I/O efficiency.
+- **Ingestion Daemon (`streamer` service)**: On startup, fetches analyst data (price targets + recommendations) via Finnhub REST API. Then continuously pulls high-frequency trading data at millisecond resolution, buffers events in-memory, and commits them to ClickHouse in micro-batches to optimize network and I/O efficiency.
 - **Data Warehouse (`clickhouse-server`)**: Stores raw events across three tables (`raw.trades`, `raw.price_targets`, `raw.recommendations`) in a column-oriented format using the `MergeTree` engine, allowing microsecond analytical aggregations.
 - **Transformation Tool (`dbt`)**: Responsible for cleansing raw logs, structuring them into a Star Schema (core dimensional models), and building analytical marts (`mart_ohlcv`, `mart_investment_advisor`). All queries run in-database (ELT).
 - **Workflow Orchestrator (`airflow`)**: Runs the `finnhub_dbt_run` DAG daily with three ordered tasks: `dbt deps` → `dbt debug` → `dbt build`. Executes automated data quality checks via dbt tests, eliminating redundant computations.

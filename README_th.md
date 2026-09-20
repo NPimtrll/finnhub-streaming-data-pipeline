@@ -1,6 +1,6 @@
 # FinnHub Streaming Data Pipeline (ภาษาไทย)
 
-โปรเจกต์ Data Engineering ท่อส่งข้อมูลธุรกรรมทางการเงิน (หุ้นและคริปโทฯ) จาก **Finnhub WebSocket API** (หรือจำลองข้อมูลด้วย Mock Mode) ส่งเข้าสู่ **ClickHouse**, ทำการแปลงข้อมูล (Transform) ด้วย **dbt**, กำหนดรอบทำงาน (Orchestrate) ด้วย **Apache Airflow** และวิเคราะห์ผลบน **Looker Studio (Google Data Studio)**
+โปรเจกต์ Data Engineering ท่อส่งข้อมูลธุรกรรมทางการเงิน (หุ้นและคริปโทฯ) จาก **Finnhub WebSocket API** ส่งเข้าสู่ **ClickHouse**, ทำการแปลงข้อมูล (Transform) ด้วย **dbt**, กำหนดรอบทำงาน (Orchestrate) ด้วย **Apache Airflow** และวิเคราะห์ผลบน **Looker Studio (Google Data Studio)**
 
 ---
 
@@ -8,8 +8,8 @@
 
 ```mermaid
 graph TD
-    A["Finnhub WebSocket API / Mock Generator"] -->|Stream JSON Trades| B(Python Streamer)
-    A2["Finnhub REST API / Mock Analyst Generator"] -->|"Price Targets & Recommendations"| B
+    A["Finnhub WebSocket API"] -->|Stream JSON Trades| B(Python Streamer)
+    A2["Finnhub REST API"] -->|"Price Targets & Recommendations"| B
     B -->|Batch Insert| C[("ClickHouse: raw.trades")]
     B -->|"Insert on Startup"| C2[("ClickHouse: raw.price_targets & raw.recommendations")]
     D["Apache Airflow DAG: finnhub_dbt_run (รายวัน)"] -->|"1. dbt deps"| E1[Install Dependencies]
@@ -23,8 +23,8 @@ graph TD
 
 ## ฟีเจอร์หลัก (Features)
 - **สถาปัตยกรรมแบบ Decoupled (แยกส่วนอิสระ)**: ตัวดึงข้อมูล (Ingestion) และตัวแปลงข้อมูล (dbt) ทำงานแยกจากกันเพื่อความเสถียรและประสิทธิภาพสูงสุด
-- **Dual Ingestion Mode**: ดึงข้อมูลตลาดจริงผ่าน Finnhub API Key หรือให้ระบบ fallback ไปรัน **Mock Trade Generator** (จำลองราคาแบบ random walk) อัตโนมัติเมื่อไม่มี key
-- **Analyst Data Ingestion**: เมื่อ streamer เริ่มทำงาน จะดึงข้อมูล **ราคาเป้าหมาย** และ **คำแนะนำจากนักวิเคราะห์** จาก Finnhub REST API (หรือ generate mock ใน Mock Mode) แล้วบันทึกลงใน `raw.price_targets` และ `raw.recommendations`
+- **Real-Time Market Ingestion**: ดึงข้อมูลตลาดจริงสดๆ จาก Finnhub WebSocket และดึงข้อมูลนักวิเคราะห์จาก Finnhub REST API
+- **Analyst Data Ingestion**: เมื่อ streamer เริ่มทำงาน จะดึงข้อมูล **ราคาเป้าหมาย** และ **คำแนะนำจากนักวิเคราะห์** จาก Finnhub REST API แล้วบันทึกลงใน `raw.price_targets` และ `raw.recommendations`
 - **Star Schema Design**: จัดโครงสร้างตารางในระดับ Core Layer เป็นตารางมิติ (`dim_assets`) และตารางข้อเท็จจริง (`fct_trades`) พร้อม mart tables ครบ 2 ตัว (`mart_ohlcv`, `mart_investment_advisor`)
 - **Source UUID Generator**: สร้างคีย์ธุรกรรม (`trade_id`) ด้วย UUIDv4 ตั้งแต่ตอนดึงข้อมูล (Ingestion) เพื่อรับประกันความไม่ซ้ำกันของธุรกรรมระดับมิลลิวินาที
 - **Configurable Batching**: ปรับพฤติกรรมการเขียนข้อมูลได้ผ่าน environment variables — `BATCH_SIZE` (default: 100 records) และ `BATCH_INTERVAL_SEC` (default: 2.0 วินาที)
@@ -41,28 +41,25 @@ graph TD
 
 ### 1. สิ่งที่ต้องมีก่อนติดตั้ง (Prerequisites)
 - ติดตั้ง **Docker & Docker Compose**
-- (ตัวเลือกเพิ่มเติม) สมัครขอ API key ฟรีจาก [Finnhub.io](https://finnhub.io/)
+- สมัครขอ API key จาก [Finnhub.io](https://finnhub.io/)
 - (ตัวเลือกเพิ่มเติม) SSH client (มีอยู่แล้วใน macOS/Linux) สำหรับเปิด tunnel ผ่าน [Pinggy](https://pinggy.io/) เพื่อเชื่อมต่อกับ Looker Studio
 
 ### 2. การสั่งเริ่มทำงาน
-จากไดเรกทอรีหลักของโปรเจกต์ สั่งรันด้วยคำสั่ง:
-
-```bash
-docker-compose up --build -d
-```
-
-หากต้องการใช้ข้อมูลจริง ให้สร้างไฟล์ `.env` ที่โฟลเดอร์หลักก่อนสั่งรัน:
+สร้างไฟล์ `.env` ที่โฟลเดอร์หลักของโปรเจกต์:
 ```env
 FINNHUB_API_KEY=รหัส_api_key_ของคุณ
 ```
 
-หากไม่ใส่ key ระบบจะรัน **Mock Mode** อัตโนมัติ — สร้างข้อมูลซื้อขายจำลองและข้อมูลนักวิเคราะห์ mock โดยไม่ต้องพึ่งภายนอก
+จากนั้นสั่งรันด้วยคำสั่ง:
+```bash
+docker-compose up --build -d
+```
 
 #### Environment Variables ที่ปรับได้
 
 | ตัวแปร | ค่าเริ่มต้น | คำอธิบาย |
 |---|---|---|
-| `FINNHUB_API_KEY` | _(ว่าง)_ | Finnhub API key — ถ้าว่างจะ fallback เป็น Mock Mode |
+| `FINNHUB_API_KEY` | _(จำเป็น)_ | Finnhub API key สำหรับดึงข้อมูลตลาดจริง |
 | `SYMBOLS` | `AAPL,MSFT,TSLA,BINANCE:BTCUSDT,BINANCE:ETHUSDT` | รายชื่อสินทรัพย์ที่ต้องการติดตาม คั่นด้วย `,` |
 | `BATCH_SIZE` | `100` | จำนวน records ที่กองไว้ก่อน flush ลง ClickHouse |
 | `BATCH_INTERVAL_SEC` | `2.0` | เวลาสูงสุด (วินาที) ก่อน flush แม้ยังไม่ถึง BATCH_SIZE |
@@ -179,7 +176,7 @@ tcp://txxxxxxxxxxxx.a.pinggy.io:XXXXX
 
 
 ### 1. แยกส่วนการดึงข้อมูลกับการแปลงข้อมูล (Decoupling)
-- **สิ่งที่เราทำ**: ตัวดึงข้อมูล (Ingestion) เป็นสคริปต์ Python ที่รันต่อเนื่อง — ตอนเริ่มต้นจะดึงข้อมูลนักวิเคราะห์ (ราคาเป้าหมาย + คำแนะนำ) จาก REST API หรือ Mock Generator แล้วบันทึกลง ClickHouse จากนั้นจึงเริ่มรับข้อมูลซื้อขายจาก WebSocket เป็น micro-batches ส่วนการรัน dbt แปลงข้อมูลสั่งผ่าน Airflow เป็นรอบรายวัน
+- **สิ่งที่เราทำ**: ตัวดึงข้อมูล (Ingestion) เป็นสคริปต์ Python ที่รันต่อเนื่อง — ตอนเริ่มต้นจะดึงข้อมูลนักวิเคราะห์ (ราคาเป้าหมาย + คำแนะนำ) จาก Finnhub REST API แล้วบันทึกลง ClickHouse จากนั้นจึงเริ่มรับข้อมูลซื้อขายจาก WebSocket เป็น micro-batches ส่วนการรัน dbt แปลงข้อมูลสั่งผ่าน Airflow เป็นรอบรายวัน
 - **ทำไมจึงไม่รัน dbt ต่อท้ายการดึงข้อมูลทันที?**: การเชื่อมคำสั่ง Ingest และ dbt run เข้าด้วยกันในลูปเดียวกันเป็น Anti-pattern หากข้อมูลเข้ามาถี่มาก การสั่ง `dbt run` ทุกครั้งจะทำให้ ClickHouse ทำงานหนักเกินโดยเปล่าประโยชน์ การแยกออกจากกันทำให้เขียนข้อมูลดิบได้รวดเร็ว และ transform เฉพาะเมื่อถึงรอบที่กำหนด
 
 
@@ -190,7 +187,7 @@ tcp://txxxxxxxxxxxx.a.pinggy.io:XXXXX
 
 ### 3. รายละเอียดและวัตถุประสงค์ของแต่ละองค์ประกอบ (Component Objectives)
 เพื่อให้เข้าใจเป้าหมายของระบบอย่างชัดเจน นี่คือวัตถุประสงค์หลักของแต่ละองค์ประกอบ:
-- **ตัวดึงข้อมูลสตรีมมิ่ง (Ingestion Daemon - `streamer`)**: ตอน startup ดึงข้อมูลนักวิเคราะห์ (price targets + recommendations) ก่อน จากนั้นรักษาการเชื่อมต่อ WebSocket เพื่อดึงข้อมูลซื้อขายระดับมิลลิวินาที พักไว้ในหน่วยความจำ และเขียนลงฐานข้อมูลเป็น micro-batches
+- **ตัวดึงข้อมูลสตรีมมิ่ง (Ingestion Daemon - `streamer`)**: ตอน startup ดึงข้อมูลนักวิเคราะห์ (price targets + recommendations) จาก Finnhub REST API ก่อน จากนั้นรักษาการเชื่อมต่อ WebSocket เพื่อดึงข้อมูลซื้อขายระดับมิลลิวินาที พักไว้ในหน่วยความจำ และเขียนลงฐานข้อมูลเป็น micro-batches
 - **คลังข้อมูลเชิงวิเคราะห์ (Data Warehouse - `clickhouse-server`)**: เก็บข้อมูลดิบใน 3 ตาราง (`raw.trades`, `raw.price_targets`, `raw.recommendations`) แบบ column-oriented ด้วย `MergeTree` engine เพื่อให้คิวรีรวดเร็ว
 - **ตัวแปลงข้อมูล (Transformation - `dbt`)**: ทำความสะอาดข้อมูลดิบ จัดโครงสร้าง Star Schema และสร้าง mart (`mart_ohlcv`, `mart_investment_advisor`) โดยคำนวณ in-database ทั้งหมด (ELT)
 - **ตัวกำหนดรอบเวลาทำงาน (Orchestrator - `airflow`)**: รัน DAG `finnhub_dbt_run` ทุกวัน ตาม 3 task chain: `dbt deps` → `dbt debug` → `dbt build` พร้อม data quality test อัตโนมัติ

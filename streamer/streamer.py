@@ -1,7 +1,7 @@
 import signal
+import sys
 from config import FINNHUB_API_KEY, logger
 from db import init_clickhouse
-from mock_streamer import run_mock_streamer
 from ws_streamer import run_websocket_streamer
 
 running = True
@@ -17,9 +17,9 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 if __name__ == "__main__":
-    init_clickhouse()
+    if not FINNHUB_API_KEY:
+        logger.error("FINNHUB_API_KEY is not set. A valid Finnhub API key is required.")
+        sys.exit(1)
 
-    if FINNHUB_API_KEY:
-        run_websocket_streamer(lambda: running)
-    else:
-        run_mock_streamer(lambda: running)
+    init_clickhouse()
+    run_websocket_streamer(lambda: running)

@@ -13,7 +13,7 @@ models:
       - name: asset_category
         description: The category of the asset (from dim_assets)
       - name: window_start
-        description: The start of the 1-minute window
+        description: The start of the 1-hour window
         tests:
           - not_null
       - name: open

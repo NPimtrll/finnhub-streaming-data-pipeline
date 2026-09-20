@@ -13,10 +13,10 @@ assets as (
 )
 
 select
-    t.symbol,
-    a.asset_name,
+    t.symbol as symbol,
+    a.asset_name as asset_name,
     a.category as asset_category,
-    toStartOfMinute(t.trade_timestamp) as window_start,
+    toStartOfHour(t.trade_timestamp) as window_start,
     argMin(t.price, t.trade_timestamp) as open,
     max(t.price) as high,
     min(t.price) as low,
