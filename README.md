@@ -1,7 +1,3 @@
-<div align="right">
-  🌐 <strong><a href="README.md">🇬🇧 English</a></strong> | <strong><a href="README_th.md">🇹🇭 ภาษาไทย</a></strong>
-</div>
-
 # FinnHub Streaming Data Pipeline
 
 An end-to-end real-time data engineering pipeline that streams financial market trade events (stocks and cryptocurrencies) from the **Finnhub WebSocket API**, stores them in **ClickHouse**, performs batch transformations using **dbt**, schedules models via **Apache Airflow**, and visualizes trading metrics in **Looker Studio (Google Data Studio)**.
@@ -32,7 +28,7 @@ graph TD
 - **Configurable Batching**: Tune write behavior via environment variables — `BATCH_SIZE` (default: 100 records) and `BATCH_INTERVAL_SEC` (default: 2.0 s) — to balance throughput and latency.
 - **ClickHouse Optimization**: Uses buffered batch inserts to maximize ClickHouse write performance and utilizes native ClickHouse functions like `argMin`/`argMax` for fast aggregates.
 - **3-Step Airflow DAG (`finnhub_dbt_run`)**: Runs daily on a structured task chain — `dbt deps` → `dbt debug` → `dbt build` — to install packages, validate the connection, then run seeds, models, and tests in dependency order.
-- **CI/CD Quality Control**: Implemented a GitHub Actions CI workflow to run formatting checks (`black`) and Python syntax analysis (`flake8`) automatically on pull requests or commits.
+- **CI/CD Quality Control & Testing**: Implemented a GitHub Actions CI workflow to automatically run formatting checks (`black`), Python syntax analysis (`flake8`), and automated unit tests (`pytest`) on pull requests or commits.
 - **Fully Containerized**: PostgreSQL (Airflow backend), ClickHouse, Airflow Scheduler/Webserver, and the Python Streamer all run in a single `docker-compose up` command.
 
 ---
@@ -92,7 +88,7 @@ docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT * F
 docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT * FROM raw.recommendations LIMIT 10"
 ```
 
-To check the transformed minutely OHLCV data:
+To check the transformed hourly OHLCV data:
 ```bash
 docker exec -it sharp-maxwell-clickhouse-1 clickhouse-client --query "SELECT * FROM analytics.mart_ohlcv LIMIT 10"
 ```
@@ -133,7 +129,7 @@ Our architectural design relies on three core tenets:
 ### 5. Definitions of Ambiguous Terms
 To reduce business logic ambiguity, we define key terms used in our pipeline:
 1. **"Price Diversity / Volatility"**: 
-   - *Technical Definition*: Calculated using **Price Spread** ($=$ High price $-$ Low price inside a 1-minute window) and **Relative Volatility Spread** ($=$ Price Spread $/$ Open Price).
+   - *Technical Definition*: Calculated using **Price Spread** ($=$ High price $-$ Low price inside a 1-hour window) and **Relative Volatility Spread** ($=$ Price Spread $/$ Open Price).
    - *Business Interpretation*: Higher spreads represent diverse bid/ask valuations, indicating trading volatility suitable for short-term gains.
 2. **"Estimated 3-Month Gain"**:
    - *Technical Definition*: Defined as a conservative estimate calculated as **25% of the 1-year analyst consensus target price growth** (`target_median` relative to `current_price`).
@@ -153,8 +149,8 @@ To ensure the Looker Studio dashboard directly answers key business questions, o
 
 | Business Question | Dashboard Metric / Chart | SQL Implementation Details |
 | :--- | :--- | :--- |
-| **1. What is the total volume and transaction count of each asset?** | **Total Volume** & **Trade Count** KPI cards and bar charts. | Sums volume (`sum(volume)`) and counts transactions (`count()`) within each minute window. |
-| **2. What is the price movement trend and rate?** | **OHLCV Candlestick Chart** & **Average Price Line Chart**. | Computes opening, highest, lowest, and closing prices for each minute window. |
+| **1. What is the total volume and transaction count of each asset?** | **Total Volume** & **Trade Count** KPI cards and bar charts. | Sums volume (`sum(volume)`) and counts transactions (`count()`) within each hourly window. |
+| **2. What is the price movement trend and rate?** | **OHLCV Candlestick Chart** & **Average Price Line Chart**. | Computes opening, highest, lowest, and closing prices for each hourly window. |
 | **3. How volatile/diverse is the trading behavior?** | **Price Spread** & **Relative Spread** Trend Charts. | Computes the absolute spread (`high - low`) and the relative spread (`spread / open`) for each window. This gauges the variance and diversity of market price fluctuations. |
 
 ---
@@ -241,7 +237,7 @@ We created the **`mart_investment_advisor`** table. Integrated with Looker Studi
 ### 2. How would you improve it?
 
 อย่างแรกที่อยากทำคือเพิ่ม message queue กลางๆ อย่าง Kafka ไว้คั่นระหว่าง streamer กับ ClickHouse เพราะตอนนี้ถ้า ClickHouse ล่ม ข้อมูลที่วิ่งเข้ามาตอนนั้นก็จะหายเลย ถ้ามี queue มารับไว้ก่อนก็จะปลอดภัยกว่า
-อีกอย่างคือ dbt ตอนนี้ทำ full refresh ทุกครั้ง ซึ่งช้าและสิ้นเปลือง อยากเปลี่ยนให้มันประมวลเฉพาะข้อมูลใหม่ที่เพิ่งเข้ามาตั้งแต่ครั้งล่าสุด
+อีกอย่างคือ dbt ตอนนี้ทำ full refresh ทุกครั้ง อยากเปลี่ยนให้มันประมวลเฉพาะข้อมูลใหม่ที่เพิ่งเข้ามาตั้งแต่ครั้งล่าสุด
 
 ---
 
